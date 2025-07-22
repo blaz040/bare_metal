@@ -51,8 +51,10 @@ OBJS =  $(VECT_TBL:.S=.o)
 OBJS += $(AS_SRC:.S=.o)
 OBJS += $(C_SRC:.c=.o)
 
-.PHONY: all
-all: $(TARGET).bin
+all: compile debug
+
+.PHONY: compile
+compile: $(TARGET).bin
 
 %.o: %.S
 	$(CC) -x assembler-with-cpp $(ASFLAGS) $< -o $@
