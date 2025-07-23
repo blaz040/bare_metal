@@ -3,7 +3,9 @@ TARGET = main
 # Define the linker script location and chip architecture.
 LD_SCRIPT = STM32413.ld
 MCU_SPEC  = cortex-m4
-
+##
+INCLUDE_PATH = ./include_files
+##
 # Toolchain definitions (ARM bare metal defaults)
 
 TOOLCHAIN = /home/blaz/Documents/GNU_tools
@@ -26,6 +28,7 @@ ASFLAGS += -fmessage-length=0
 # C compilation directives
 CFLAGS += -mcpu=$(MCU_SPEC)
 CFLAGS += -mthumb
+CFLAGS += -I$(INCLUDE_PATH)
 CFLAGS += -Wall
 CFLAGS += -g
 # (Set error messages to appear on a single line.)
