@@ -3,7 +3,7 @@
 #include "drivers/stm32f413xx.h"
 
 #define RCC_AHB1ENR	((uint32_t *) 0x40023830)
-#define RCC_APB2ENR	((uint32_t *) 0x40017044)
+#define RCC_APB2ENR	((uint32_t *) 0x40023844)
 //#define GPIOB 		((uint32_t *) 0x40020400)
 //#define GPIOB_MODER 	((uint32_t *) 0x40020400)
 //#define GPIOB_OUDR	((uint32_t *) 0x40020414)
@@ -15,6 +15,8 @@
 #define EXTI_PR		((uint32_t *) 0x40013C14)
 
 uint32_t core_clock_hz;
+uint32_t time = 0;
+uint32_t SysTick_tick; 
 
 // LD1 PB0
 // button  PC13
@@ -55,7 +57,6 @@ void GPIO_write(GPIO* gpio, uint32_t Pin, uint32_t val)
 }
 uint32_t  GPIO_read(GPIO* gpio,uint32_t Pin)
 {
-
 	return gpio->IDR & (1 << Pin);
 }
 void button_init(GPIO** BUTTON)
@@ -89,58 +90,68 @@ void FLASH_init()
 void PLL_init()
 {
 	FLASH_init();
-	int a = RCC->CFGR & RCC_CFGR_SW_Msk;
-	int b = RCC->CR & RCC_CR_HSION_Msk;
-	int c = RCC->CR & RCC_CR_HSIRDY_Msk; 
-	//RCC->CR |= RCC_CR_HSION;
-	//while(!(RCC->CR & RCC_CR_HSIRDY)) {}
-	int m = 96;
-	int n = 8;
+
+	int m = 96; // more bit med 50<m<432
+	int n = 8;	// 2< n <15
 	int p = 0x1;
 	int pp = 4;
 
 	RCC->PLLCFGR &= ~( RCC_PLLCFGR_PLLSRC_Msk | RCC_PLLCFGR_PLLN_Msk | RCC_PLLCFGR_PLLM_Msk );
 	RCC->PLLCFGR |= (RCC_PLLCFGR_PLLSRC_HSI | ( m << RCC_PLLCFGR_PLLN_Pos)| (n << RCC_PLLCFGR_PLLM_Pos) | (p << RCC_PLLCFGR_PLLP_Pos));
-	
-	int d = (RCC->PLLCFGR & RCC_PLLCFGR_PLLP_Msk )>> RCC_PLLCFGR_PLLP_Pos;
-	
+		
 	RCC->CR |= RCC_CR_PLLON;
 	while(!(RCC->CR & RCC_CR_PLLRDY)) {}
 
 	RCC->CFGR |= RCC_CFGR_SW_PLL;
 	while(!(RCC->CFGR & RCC_CFGR_SWS_PLL)){}
 	
-	a = RCC->CFGR & RCC_CFGR_SW_Msk;
-	b = RCC->CR & RCC_CR_HSION_Msk;
-	c = RCC->CR & RCC_CR_HSIRDY_Msk; 
-
-	core_clock_hz = (16000000*m/n)/pp; // 48MHz
-	a = 0;
+	core_clock_hz = (16000000*m/n)/pp; // 48 MHz
+	SysTick_tick = core_clock_hz/1000; // vsako mikro sedundo
 }
-
-
-void delay(int wait)
+void TIM_init(TIM_TypeDef ** TIMx, uint32_t ms)
 {
-	for(int i = 0; i<wait;i++)
-	{
-		i = i;
-	}
+	*TIMx = (TIM_TypeDef*) (TIM2_BASE);
+	RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
+	
+	RCC->APB1RSTR |=  (RCC_APB1RSTR_TIM2RST);
+    RCC->APB1RSTR &= ~(RCC_APB1RSTR_TIM2RST);
+	
+	NVIC_SetPriority(TIM2_IRQn,0x3);
+	NVIC_EnableIRQ(TIM2_IRQn);
+
+	(*TIMx)->PSC = core_clock_hz/1000;
+	(*TIMx)->ARR = ms;
+	(*TIMx)->EGR  |= TIM_EGR_UG;
+	(*TIMx)->DIER |= TIM_DIER_UIE;
+	(*TIMx)->CR1 |= TIM_CR1_CEN;
+}
+void delay(int ms)
+{
+	//uint32_t multiplier = 1000 /(core_clock_hz / SysTick_tick);
+	ms =  ms;
+	int stop_time = time+ms;
+	while(time <= stop_time){}
 }
 
 GPIO* LED1 = 0x0;
 GPIO* LED2 = 0x0;
+GPIO* LED3 = 0x0;
 GPIO* BUTTON = 0x0;
+TIM_TypeDef* TIMer;
 
 int main()
 {
-	//PLL_init();
-
-			
+	PLL_init();
+	
+	SysTick_Config(SysTick_tick); // vsako milisekundo
+	
 	GPIO_init(&LED1,'B',0,1);
 	GPIO_init(&LED2,'B',7,1);
-	
-	//button_init(&BUTTON);
-	
+	GPIO_init(&LED3,'B',14,1);// PB14
+
+	button_init(&BUTTON);
+
+	TIM_init(&TIMer,100);
 
 	while(1)
 	{
@@ -153,23 +164,38 @@ int main()
 		
 		//GPIO_write(LED1,0,1);
 		GPIO_write(LED2,7,0);
-		delay(1000*1000);
+		delay(1000);
 		
 		//GPIO_write(LED1,0,0);
 		GPIO_write(LED2,7,1);
-		delay(1000*1000);
+		delay(1000);
 	}
 }
-
+int bounce_time;
 void EXTI15_10_IRQHandler(void)
 {
 	if(*EXTI_PR & (1 << 13)){
-		if(GPIO_read(LED1,0) == 1)
-			GPIO_write(LED1,0,0);
-		else
-			GPIO_write(LED1,0,1);
-		//*EXTI_EMR &= ~(1 <<13);
+		
+		if(bounce_time == 0 || time - bounce_time >= 100) 
+		{
+		
+
+			if(GPIO_read(LED1,0) == 1)
+				GPIO_write(LED1,0,0);
+			else
+				GPIO_write(LED1,0,1);
+			bounce_time = time;
+		}
 		*EXTI_PR |= (1 << 13);
 	}
 }
+void TIM2_IRQHandler(void)
+{
+	LED3->ODR ^=  1 << 14;
+	TIMer->SR &= ~(TIM_SR_UIF);
+}
 
+void SysTick_Handler(void)
+{
+	time++;
+}
