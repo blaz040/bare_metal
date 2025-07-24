@@ -1,5 +1,6 @@
 #include <stdint.h>
-
+#include <stdio.h>
+#include <string.h>
 #include "drivers/stm32f413xx.h"
 
 #define RCC_AHB1ENR	((uint32_t *) 0x40023830)
@@ -54,6 +55,10 @@ void GPIO_write(GPIO* gpio, uint32_t Pin, uint32_t val)
 		gpio->ODR &= ~(1 << Pin);
 	}
 	
+}
+void GPIO_toggle(GPIO* gpio, uint32_t Pin)
+{
+	gpio->ODR ^= 1<<Pin;
 }
 uint32_t  GPIO_read(GPIO* gpio,uint32_t Pin)
 {
@@ -125,6 +130,30 @@ void TIM_init(TIM_TypeDef ** TIMx, uint32_t ms)
 	(*TIMx)->DIER |= TIM_DIER_UIE;
 	(*TIMx)->CR1 |= TIM_CR1_CEN;
 }
+void USART_init()
+{
+	//	USART3
+	//		PD8 TX AF7
+	//		PD9 RX AF7
+	RCC->AHB1ENR |= RCC_AHB1ENR_GPIODEN;
+
+	RCC->APB1ENR |= RCC_APB1ENR_USART3EN;
+	
+	GPIOD->MODER |= (0x2 << (8*2))| 0x2 << (9*2);
+	GPIOD->AFR[1] |= (0x7 << 0) | 0x7 << 1*4;
+
+	USART3->BRR = 0x1A1;
+
+	USART3->CR1 |= USART_CR1_UE | USART_CR1_RXNEIE | USART_CR1_TE | USART_CR1_RE;
+	
+	//uint32_t usartDIV = core_clock_hz / 115200
+
+	USART3->DR = '0';
+	
+	NVIC_SetPriority(USART3_IRQn,0x2);
+	NVIC_EnableIRQ(USART3_IRQn);
+
+}
 void delay(int ms)
 {
 	//uint32_t multiplier = 1000 /(core_clock_hz / SysTick_tick);
@@ -132,12 +161,15 @@ void delay(int ms)
 	int stop_time = time+ms;
 	while(time <= stop_time){}
 }
+void send(char* buffer);
 
 GPIO* LED1 = 0x0;
 GPIO* LED2 = 0x0;
 GPIO* LED3 = 0x0;
 GPIO* BUTTON = 0x0;
+
 TIM_TypeDef* TIMer;
+
 
 int main()
 {
@@ -151,11 +183,15 @@ int main()
 
 	button_init(&BUTTON);
 
-	TIM_init(&TIMer,100);
-
+	//TIM_init(&TIMer,100);
+	USART_init();
+	
 	while(1)
 	{
-	/*
+	/*	if(USART3->SR & USART_SR_TXE)
+			USART3->DR = 'a';
+	*/
+		/*
 		if(BUTTON->IDR |= (1 << 13) == 1)
 			GPIO_write(LED1,0,1);
 		else
@@ -163,30 +199,27 @@ int main()
 	*/	
 		
 		//GPIO_write(LED1,0,1);
-		GPIO_write(LED2,7,0);
-		delay(1000);
+		//GPIO_write(LED2,7,0);
+		//delay(1000);
 		
 		//GPIO_write(LED1,0,0);
-		GPIO_write(LED2,7,1);
-		delay(1000);
+		//GPIO_write(LED2,7,1);
+		//delay(1000);
 	}
 }
 int bounce_time;
 void EXTI15_10_IRQHandler(void)
 {
 	if(*EXTI_PR & (1 << 13)){
-		
+		*EXTI_PR |= (1 << 13);
 		if(bounce_time == 0 || time - bounce_time >= 100) 
 		{
-		
-
 			if(GPIO_read(LED1,0) == 1)
 				GPIO_write(LED1,0,0);
 			else
 				GPIO_write(LED1,0,1);
 			bounce_time = time;
 		}
-		*EXTI_PR |= (1 << 13);
 	}
 }
 void TIM2_IRQHandler(void)
@@ -195,6 +228,46 @@ void TIM2_IRQHandler(void)
 	TIMer->SR &= ~(TIM_SR_UIF);
 }
 
+void send(char* buffer)
+{
+	while(*buffer != '\0')
+	{
+		GPIO_toggle(LED2,7);
+		while(!(USART3->SR & USART_SR_TXE));
+			USART3->DR = *buffer++;
+	}
+}
+
+char buffer[9];
+int ix = 0;
+void USART3_IRQHandler(void)
+{
+	char txt = USART3->DR;
+	if(txt == '\r')
+	{
+		send(" :<");
+		send(buffer);
+		send(">");
+		for(int i = 0; i<9; i++)
+			buffer[i] = 0;
+		ix = 0;
+		send("\r\n");
+		return;
+	} 
+
+	buffer[ix++%8] = txt;
+	
+	if(strcmp(buffer,"LED ON") == 0)
+	{
+		GPIO_write(LED1,0,1);
+	}
+	else if(strcmp(buffer,"LED OFF") == 0)
+	{
+		GPIO_write(LED1,0,0);
+	}
+	char tmp[2] = {txt,0};
+	send(tmp);
+}
 void SysTick_Handler(void)
 {
 	time++;
