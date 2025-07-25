@@ -1,13 +1,10 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include "drivers/stm32f413xx.h"
+#include "stm32f413xx.h"
 
 #define RCC_AHB1ENR	((uint32_t *) 0x40023830)
 #define RCC_APB2ENR	((uint32_t *) 0x40023844)
-//#define GPIOB 		((uint32_t *) 0x40020400)
-//#define GPIOB_MODER 	((uint32_t *) 0x40020400)
-//#define GPIOB_OUDR	((uint32_t *) 0x40020414)
 #define SYSCFG_EXTICR4	((uint32_t *) 0x40013814)
 #define EXTI_IMR	((uint32_t *) 0x40013C00)
 #define EXTI_EMR	((uint32_t *) 0x40013C04)
@@ -72,7 +69,6 @@ void button_init(GPIO** BUTTON)
 	
 	// button  PC13
 	*RCC_APB2ENR |= (1 << 14);
-	//*RCC_APB2ENR |= (1 << 15);
 	
 	*SYSCFG_EXTICR4 &= ~(0xF << 4);
 	*SYSCFG_EXTICR4 |= (0x2 << 4);
@@ -132,7 +128,7 @@ void TIM_init(TIM_TypeDef ** TIMx, uint32_t ms)
 }
 void USART_init()
 {
-	//	USART3
+	//	USART3 communication COM port
 	//		PD8 TX AF7
 	//		PD9 RX AF7
 	RCC->AHB1ENR |= RCC_AHB1ENR_GPIODEN;
@@ -142,12 +138,10 @@ void USART_init()
 	GPIOD->MODER |= (0x2 << (8*2))| 0x2 << (9*2);
 	GPIOD->AFR[1] |= (0x7 << 0) | 0x7 << 1*4;
 
-	USART3->BRR = 0x1A1;
+	USART3->BRR = 0x1A1; // 115200
 
 	USART3->CR1 |= USART_CR1_UE | USART_CR1_RXNEIE | USART_CR1_TE | USART_CR1_RE;
 	
-	//uint32_t usartDIV = core_clock_hz / 115200
-
 	USART3->DR = '0';
 	
 	NVIC_SetPriority(USART3_IRQn,0x2);
